@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 import uvicorn
 import numpy as np
 import tensorflow as tf
@@ -25,24 +25,38 @@ def read_root():
 
 @app.post("/predict/")
 async def predict(file: UploadFile = File(...)):
-    # Ler bytes da imagem enviada
-    contents = await file.read()
+    # Validar extensão do arquivo
+    allowed_extensions = ["jpg", "jpeg", "png"]
+    file_ext = file.filename.split(".")[-1].lower()
 
-    # Pré-processar a imagem
-    processed_image = preprocess_image(contents)
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Arquivo inválido. Extensões permitidas: {allowed_extensions}"
+        )
 
-    # Fazer a predição
-    prediction = model.predict(processed_image)[0][0]
+    try:
+        # Tentar ler e processar a imagem enviada
+        contents = await file.read()
+        processed_image = preprocess_image(contents)
+
+        # Fazer a predição
+        prediction = model.predict(processed_image)[0][0]
     
-    # Interpretar o resultado
-    label = "PNEUMONIA" if prediction > 0.5 else "NORMAL"
-    confidence = float(prediction) if label == "PNEUMONIA" else float(1 - prediction)
+        # Interpretar o resultado
+        label = "PNEUMONIA" if prediction > 0.5 else "NORMAL"
+        confidence = float(prediction) if label == "PNEUMONIA" else float(1 - prediction)
 
-    return {
-        "image_name": file.filename,
-        "label": label,
-        "confidence": round(confidence * 100, 2)
-    }
+        return {
+            "image_name": file.filename,
+            "label": label,
+            "confidence": round(confidence * 100, 2),
+            "status": "success"
+        }
+    
+    except Exception as e:
+        # Retorna erro caso a imagem esteja corrompida ou o modelo falhe
+        raise HTTPException(status_code=500, detail=f"Erro ao processar imagem: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host='0.0.0.0', port=8000)
